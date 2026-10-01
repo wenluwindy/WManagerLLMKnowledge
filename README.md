@@ -154,6 +154,8 @@ IMGUI 示例保存资料后复用同一 DocumentId 更新；“新建资料”�
 
 使用方将整个目录放入自己的 Packages 目录，或使用 Package Manager 的 Add package from disk 选择 package.json。模型与基础知识库另外复制到使用方的 StreamingAssets/Knowledge。
 
+必须连同 `.meta` 文件一起分发，保持资源 GUID 不变。导出前会检查 Unity 可导入的文件和文件夹是否有配套 `.meta`；`Documentation~`、`Samples~` 等 Unity 忽略目录不参与检查。当前许可证为 `LICENSE.txt` 与 `LICENSE.txt.meta`。若其他工程提示 `LICENSE has no meta file, but it's in an immutable folder`，说明所用包仍含无 `.meta` 的旧 LICENSE：重新导出完整包并更新使用方依赖，勿直接修改只读 PackageCache。自行维护旧 LICENSE 时，应在可写源包中补齐其 LICENSE.meta 后重新分发。
+
 本插件不强制依赖 WManager、UniTask、Odin、Addressables 或现有 UI 框架。
 
 ## 依赖与构建
