@@ -4,21 +4,22 @@ This package distributes unmodified NuGet managed binaries and Windows x64 CPU n
 
 | Project / package | Version | License | Source |
 | --- | --- | --- | --- |
-| LLamaSharp / LLamaSharp.Backend.Cpu | 0.24.0 | MIT | https://github.com/SciSharp/LLamaSharp |
-| llama.cpp | ceda28ef8e310a8dee60bf275077a3eedae8e36c | MIT | https://github.com/ggml-org/llama.cpp |
-| CommunityToolkit.HighPerformance | 8.4.0 | MIT | https://github.com/CommunityToolkit/dotnet |
-| Microsoft.Bcl.AsyncInterfaces | 9.0.3 | MIT | https://github.com/dotnet/runtime |
-| Microsoft.Bcl.Numerics | 9.0.3 | MIT | https://github.com/dotnet/runtime |
-| Microsoft.Extensions.AI.Abstractions | 9.5.0-preview.1.25262.9 | MIT | https://github.com/dotnet/extensions |
-| Microsoft.Extensions.DependencyInjection.Abstractions | 9.0.3 | MIT | https://github.com/dotnet/runtime |
-| Microsoft.Extensions.Logging.Abstractions | 9.0.3 | MIT | https://github.com/dotnet/runtime |
-| System.Diagnostics.DiagnosticSource | 9.0.3 | MIT | https://github.com/dotnet/runtime |
-| System.IO.Pipelines | 9.0.0 | MIT | https://github.com/dotnet/runtime |
-| System.Linq.Async | 6.0.1 | MIT | https://github.com/dotnet/reactive |
-| System.Numerics.Tensors | 9.0.3 | MIT | https://github.com/dotnet/runtime |
-| System.Runtime.CompilerServices.Unsafe | 6.1.0 | MIT | https://github.com/dotnet/runtime |
-| System.Text.Encodings.Web | 9.0.0 | MIT | https://github.com/dotnet/runtime |
-| System.Text.Json | 9.0.0 | MIT | https://github.com/dotnet/runtime |
+| LLamaSharp / LLamaSharp.Backend.Cpu | 0.27.0 | MIT | https://github.com/SciSharp/LLamaSharp |
+| llama.cpp | 3f7c29d318e317b63f54c558bc69803963d7d88c | MIT | https://github.com/ggml-org/llama.cpp |
+| CommunityToolkit.HighPerformance | 8.4.2 | MIT | https://github.com/CommunityToolkit/dotnet |
+| Microsoft.Bcl.AsyncInterfaces | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| Microsoft.Bcl.Memory / Microsoft.Bcl.Numerics | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| Microsoft.Extensions.AI.Abstractions | 10.4.1 | MIT | https://github.com/dotnet/extensions |
+| Microsoft.Extensions.DependencyInjection.Abstractions | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| Microsoft.Extensions.Logging.Abstractions | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| System.Diagnostics.DiagnosticSource | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| System.IO.Pipelines | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| System.Linq.Async / System.Interactive.Async | 7.0.0 | MIT | https://github.com/dotnet/reactive |
+| System.Linq.AsyncEnumerable | 10.0.2 | MIT | https://github.com/dotnet/runtime |
+| System.Numerics.Tensors | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| System.Runtime.CompilerServices.Unsafe | 6.1.2 | MIT | https://github.com/dotnet/runtime |
+| System.Text.Encodings.Web | 10.0.5 | MIT | https://github.com/dotnet/runtime |
+| System.Text.Json | 10.0.5 | MIT | https://github.com/dotnet/runtime |
 
 Resolved dependency versions are recorded in Documentation~/packages.lock.json. Original project license texts are distributed under ThirdParty~/. The Windows SQLite implementation uses the operating system's winsqlite3 library and does not redistribute SQLite binaries.
 

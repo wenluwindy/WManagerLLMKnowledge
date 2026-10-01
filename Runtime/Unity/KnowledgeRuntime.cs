@@ -72,7 +72,7 @@ namespace WManager.Knowledge
         public async Task<ImportResult> ImportFileAsync(string path, IProgress<ImportProgress> progress = null, CancellationToken ct = default)
         {
             await InitializeAsync(ct);
-            var request = await Task.Run(() => ImportRequest.FromFile(path), ct);
+            var request = await Task.Run(() => ImportRequest.FromFile(path, ct), ct);
             return await Service.ImportAsync(request, progress, ct);
         }
 

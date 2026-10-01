@@ -43,7 +43,7 @@ namespace WManager.Knowledge.Samples
                 answer = string.Empty;
                 await runtime.InitializeAsync(token);
                 var settings = runtime.Settings;
-                var result = await runtime.Service.AskAsync(new AskRequest { Question = question, TopK = settings.topK, MinimumScore = settings.minimumScore }, new Progress<AnswerDelta>(delta => answer += delta.Text), token);
+                var result = await runtime.Service.AskAsync(new AskRequest { Question = question, TopK = settings.topK, MinimumScore = settings.minimumScore, MaximumEvidence = settings.maximumEvidence }, new Progress<AnswerDelta>(delta => answer += delta.Text), token);
                 answer = result.Text;
                 foreach (var citation in result.Citations) answer += "\n[" + citation.Id + "] " + citation.Hit.Title + " / " + citation.Hit.Heading;
             });

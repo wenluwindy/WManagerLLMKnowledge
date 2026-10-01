@@ -1,0 +1,5 @@
+{
+  "name": "WManager.Knowledge.UGUI",
+  "rootNamespace": "WManager.Knowledge.Samples",
+  "references": ["WManager.Knowledge.Core", "WManager.Knowledge.LLamaSharp", "WManager.Knowledge.Runtime", "Unity.ugui"]
+}

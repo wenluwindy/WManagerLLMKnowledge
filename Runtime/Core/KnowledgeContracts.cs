@@ -10,6 +10,7 @@ namespace WManager.Knowledge
         Task InitializeAsync(CancellationToken ct = default);
         Task<ImportResult> ImportAsync(ImportRequest request, IProgress<ImportProgress> progress = null, CancellationToken ct = default);
         Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(CancellationToken ct = default);
+        Task<IReadOnlyList<SearchHit>> ReadDocumentChunksAsync(string documentId, CancellationToken ct = default);
         Task DeleteDocumentAsync(string documentId, CancellationToken ct = default);
         Task<SearchResult> SearchAsync(SearchRequest request, CancellationToken ct = default);
         Task<AnswerResult> AskAsync(AskRequest request, IProgress<AnswerDelta> stream = null, CancellationToken ct = default);
@@ -51,12 +52,12 @@ namespace WManager.Knowledge
         public string Text;
 
         public static ImportRequest FromFile(string path)
+            => FromFile(path, CancellationToken.None);
+
+        public static ImportRequest FromFile(string path, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("A file path is required.", nameof(path));
-            string extension = System.IO.Path.GetExtension(path).ToLowerInvariant();
-            if (extension != ".txt" && extension != ".md") throw new NotSupportedException("Only UTF-8 .txt and .md files are supported.");
-            var encoding = new System.Text.UTF8Encoding(false, true);
-            string text = System.IO.File.ReadAllText(path, encoding);
+            string text = KnowledgeDocumentReader.Read(path, ct);
             string canonicalPath = System.IO.Path.GetFullPath(path);
             return new ImportRequest
             {
@@ -146,6 +147,10 @@ namespace WManager.Knowledge
         public IReadOnlyList<KnowledgeCitation> Citations = Array.Empty<KnowledgeCitation>();
         public IReadOnlyList<KnowledgeCitation> RetrievedEvidence = Array.Empty<KnowledgeCitation>();
         public long ElapsedMilliseconds;
+        public long RetrievalMilliseconds;
+        public long GenerationMilliseconds;
+        public long FirstTokenMilliseconds = -1;
+        public int PromptTokens;
     }
 
     [Serializable]

@@ -1,10 +1,14 @@
 {
   "name": "com.wmanager.knowledge",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "displayName": "WManager Knowledge",
-  "description": "Offline, editable local knowledge bases with LLamaSharp and RAG for Windows x64.",
+  "description": "使用适用于 Windows x64 的 LLamaSharp 和 RAG 实现离线、可编辑的本地知识库。",
   "unity": "6000.2",
   "keywords": ["rag", "llamasharp", "knowledge", "offline"],
   "author": { "name": "WManager" },
-  "samples": [{ "displayName": "Runtime Knowledge Demo", "description": "Runtime import, retrieval and streaming chat.", "path": "Samples~/RuntimeDemo" }]
+  "dependencies": { "com.unity.ugui": "2.0.0" },
+  "samples": [
+    { "displayName": "Runtime Knowledge Demo", "description": "Runtime import, retrieval and streaming chat (IMGUI).", "path": "Samples~/RuntimeDemo" },
+    { "displayName": "uGUI Knowledge Demo", "description": "uGUI scene with document management, retrieval and streaming answers.", "path": "Samples~/UGUIDemo" }
+  ]
 }

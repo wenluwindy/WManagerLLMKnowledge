@@ -30,6 +30,9 @@ namespace WManager.Knowledge.Editor
         private IReadOnlyList<SearchHit> hits = Array.Empty<SearchHit>();
         private AnswerResult lastAnswer;
         private bool closing;
+        private readonly KnowledgeEditorUI configurationUI = new KnowledgeEditorUI();
+        [SerializeField] private string documentFilter = "";
+        [SerializeField] private string searchDocumentId = "";
 
         [MenuItem("Tools/WManager/Knowledge Center")]
         public static void Open()
@@ -56,6 +59,7 @@ namespace WManager.Knowledge.Editor
             AssemblyReloadEvents.beforeAssemblyReload -= Stop;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
             Stop();
+            configurationUI.Dispose();
         }
 
         private void OnPlayModeChanged(PlayModeStateChange state)
@@ -69,6 +73,8 @@ namespace WManager.Knowledge.Editor
             service?.Dispose();
             service = null;
             documents = Array.Empty<KnowledgeDocument>();
+            hits = Array.Empty<SearchHit>();
+            lastAnswer = null;
             if (pendingCreation != null)
             {
                 try { pendingCreation.GetAwaiter().GetResult().Dispose(); }
@@ -82,12 +88,23 @@ namespace WManager.Knowledge.Editor
 
         private void OnGUI()
         {
+            EditorGUILayout.LabelField("知识中心", EditorStyles.largeLabel);
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(busy || service != null))
                 settings = (KnowledgeSettings)EditorGUILayout.ObjectField("配置", settings, typeof(KnowledgeSettings), false);
             using (new EditorGUI.DisabledScope(busy))
                 if (GUILayout.Button("新建配置", GUILayout.Width(80))) CreateSettings();
             EditorGUILayout.EndHorizontal();
+            using (new EditorGUI.DisabledScope(busy))
+            {
+                EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+                GUILayout.Label("资料 " + documents.Count + "  |  " + (service == null ? "模型未加载" : "模型已加载"));
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("大模型聊天", EditorStyles.toolbarButton)) LlamaChatWindow.Open();
+                if (GUILayout.Button("保存配置", EditorStyles.toolbarButton)) AssetDatabase.SaveAssets();
+                if (GUILayout.Button("释放模型", EditorStyles.toolbarButton) && service != null) { Stop(); status = "模型已释放，可修改配置"; }
+                EditorGUILayout.EndHorizontal();
+            }
             tab = GUILayout.Toolbar(tab, new[] { "配置", "资料", "问答与检索" });
             scroll = EditorGUILayout.BeginScrollView(scroll);
             using (new EditorGUI.DisabledScope(busy))
@@ -109,29 +126,24 @@ namespace WManager.Knowledge.Editor
 
         private void DrawConfiguration()
         {
-            if (settings == null) return;
+            if (settings == null) { EditorGUILayout.HelpBox("请选择或新建知识库配置。", MessageType.Info); return; }
+            KnowledgeEditorUI.BeginSection("模型、生成、分块与检索参数");
             using (new EditorGUI.DisabledScope(service != null))
             {
-                var serialized = new SerializedObject(settings);
-                serialized.Update();
-                var iterator = serialized.GetIterator();
-                bool enter = true;
-                while (iterator.NextVisible(enter))
-                {
-                    enter = false;
-                    if (iterator.name != "m_Script") EditorGUILayout.PropertyField(iterator, true);
-                }
-                serialized.ApplyModifiedProperties();
+                configurationUI.DrawSettings(settings);
+                DrawModelSelection();
             }
+            KnowledgeEditorUI.EndSection();
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("模型目录", EditorStyles.boldLabel);
             EditorGUILayout.SelectableLabel(Path.Combine(Application.streamingAssetsPath, "Knowledge/Models"), GUILayout.Height(20));
             EditorGUILayout.LabelField("编辑器工作库", EditorStyles.boldLabel);
             EditorGUILayout.SelectableLabel(EditorDatabaseDirectory, GUILayout.Height(20));
+            EditorGUILayout.LabelField("推理后端", service == null ? "LLamaSharp " + LlamaKnowledgeFactory.BackendVersion + " / " + settings.acceleration : service.BackendDescription);
             if (GUILayout.Button(service == null ? "初始化知识库" : "释放模型"))
             {
                 if (service != null) { Stop(); status = "模型已释放"; }
-                else Run(async token => { await EnsureService(token); status = "模型和知识库已就绪"; });
+                else Run(async token => { status = "正在加载模型并预热…"; await EnsureService(token); status = "模型和知识库已就绪 / " + service.BackendDescription; });
             }
             if (GUILayout.Button("打开模型目录"))
             { Directory.CreateDirectory(Path.Combine(Application.streamingAssetsPath, "Knowledge/Models")); EditorUtility.RevealInFinder(Path.Combine(Application.streamingAssetsPath, "Knowledge/Models")); }
@@ -148,17 +160,64 @@ namespace WManager.Knowledge.Editor
             }
         }
 
+        private void DrawModelSelection()
+        {
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("选择回答模型…")) ChooseModel(false);
+            if (GUILayout.Button("选择向量模型…")) ChooseModel(true);
+            EditorGUILayout.EndHorizontal();
+            DrawModelArchitecture("回答模型架构", settings.generationModel);
+            DrawModelArchitecture("向量模型架构", settings.embeddingModel);
+        }
+
+        private void ChooseModel(bool embedding)
+        {
+            string path = EditorUtility.OpenFilePanel("选择 GGUF 模型", Path.Combine(Application.streamingAssetsPath, "Knowledge/Models"), "gguf");
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                GgufModelInfo.Read(path);
+                string root = Path.GetFullPath(Application.streamingAssetsPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string full = Path.GetFullPath(path);
+                string configured = full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? full.Substring(root.Length).Replace('\\', '/') : full;
+                Undo.RecordObject(settings, "Change knowledge model");
+                if (embedding) settings.embeddingModel = configured;
+                else settings.generationModel = configured;
+                EditorUtility.SetDirty(settings);
+                AssetDatabase.SaveAssets();
+                error = "";
+            }
+            catch (Exception exception) { error = exception.Message; }
+        }
+
+        private void DrawModelArchitecture(string label, string configuredPath)
+        {
+            if (string.IsNullOrWhiteSpace(configuredPath)) return;
+            try
+            {
+                string path = settings.ResolveModelPath(configuredPath);
+                if (File.Exists(path)) EditorGUILayout.LabelField(label, GgufModelInfo.Read(path).Architecture);
+            }
+            catch (Exception exception) { EditorGUILayout.HelpBox(exception.Message, MessageType.Warning); }
+        }
+
         private void DrawDocuments()
         {
             if (settings == null) return;
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("导入 TXT / Markdown"))
+            if (GUILayout.Button("导入文档"))
             {
-                string path = EditorUtility.OpenFilePanelWithFilters("选择资料", "", new[] { "Text / Markdown", "txt,md" });
+                string path = EditorUtility.OpenFilePanelWithFilters("选择资料", "", new[]
+                {
+                    "支持的文档", "txt,md,docx,docm,pptx,pptm,xls,xlsx,xlsm,pdf",
+                    "Word", "docx,docm", "PowerPoint", "pptx,pptm", "Excel", "xls,xlsx,xlsm",
+                    "PDF", "pdf", "Text / Markdown", "txt,md"
+                });
                 if (!string.IsNullOrEmpty(path)) Run(async token =>
                 {
                     await EnsureService(token);
-                    var request = await Task.Run(() => ImportRequest.FromFile(path), token);
+                    status = "正在提取文档内容…";
+                    var request = await Task.Run(() => ImportRequest.FromFile(path, token), token);
                     var result = await service.ImportAsync(request, ImportProgress(), token);
                     documents = await service.ListDocumentsAsync(token);
                     status = result.Unchanged ? "资料没有变化" : "已导入 " + result.ChunkCount + " 个片段";
@@ -179,8 +238,14 @@ namespace WManager.Knowledge.Editor
                 });
             }
             EditorGUILayout.EndHorizontal();
+            documentFilter = EditorGUILayout.TextField("筛选标题 / 来源", documentFilter);
+            EditorGUILayout.LabelField("资料列表 · " + documents.Count, EditorStyles.boldLabel);
             foreach (var document in documents)
             {
+                if (!string.IsNullOrWhiteSpace(documentFilter)
+                    && (document.Title ?? "").IndexOf(documentFilter, StringComparison.OrdinalIgnoreCase) < 0
+                    && (document.Source ?? "").IndexOf(documentFilter, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                KnowledgeEditorUI.BeginSection(document.Title);
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.LabelField(document.Title + "  (" + document.ChunkCount + " 片段)");
                 if (GUILayout.Button("替换", GUILayout.Width(48)))
@@ -193,6 +258,8 @@ namespace WManager.Knowledge.Editor
                 }
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.LabelField(document.Source, EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("更新时间", document.UpdatedUtc, EditorStyles.miniLabel);
+                KnowledgeEditorUI.EndSection();
             }
             EditorGUILayout.Space();
             EditorGUILayout.LabelField(string.IsNullOrEmpty(documentId) ? "新资料" : "替换所选资料", EditorStyles.boldLabel);
@@ -215,12 +282,27 @@ namespace WManager.Knowledge.Editor
         private void DrawChat()
         {
             if (settings == null) return;
+            KnowledgeEditorUI.BeginSection("检索范围");
+            var labels = new List<string> { "全部资料" };
+            int selected = 0;
+            for (int i = 0; i < documents.Count; i++)
+            {
+                labels.Add(documents[i].Title);
+                if (documents[i].Id == searchDocumentId) selected = i + 1;
+            }
+            selected = EditorGUILayout.Popup("资料", selected, labels.ToArray());
+            searchDocumentId = selected == 0 ? "" : documents[selected - 1].Id;
+            EditorGUILayout.LabelField("召回数量 / 最低分数", settings.topK + " / " + settings.minimumScore.ToString("F2"));
+            KnowledgeEditorUI.EndSection();
+            EditorGUILayout.LabelField("问题", EditorStyles.boldLabel);
             question = EditorGUILayout.TextArea(question, GUILayout.MinHeight(70));
+            using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(question)))
+            {
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("检索")) Run(async token =>
             {
                 await EnsureService(token);
-                var result = await service.SearchAsync(new SearchRequest { Question = question, TopK = settings.topK, MinimumScore = settings.minimumScore }, token);
+                var result = await service.SearchAsync(new SearchRequest { Question = question, TopK = settings.topK, MinimumScore = settings.minimumScore, DocumentId = string.IsNullOrEmpty(searchDocumentId) ? null : searchDocumentId }, token);
                 hits = result.Hits;
                 status = "命中 " + hits.Count + " 个片段";
             });
@@ -228,22 +310,32 @@ namespace WManager.Knowledge.Editor
             {
                 await EnsureService(token);
                 answer = string.Empty; lastAnswer = null;
+                status = "正在检索和处理资料…";
                 bool receiving = true;
-                var progress = new Progress<AnswerDelta>(delta => { if (!closing && receiving) { answer += delta.Text; Repaint(); } });
-                lastAnswer = await service.AskAsync(new AskRequest { Question = question, TopK = settings.topK, MinimumScore = settings.minimumScore }, progress, token);
-                receiving = false;
+                var progress = new Progress<AnswerDelta>(delta => { if (!closing && receiving) { answer += delta.Text; status = "正在回答…"; Repaint(); } });
+                try
+                {
+                    lastAnswer = await service.AskAsync(new AskRequest { Question = question, TopK = settings.topK, MinimumScore = settings.minimumScore,
+                        MaximumEvidence = settings.maximumEvidence, DocumentId = string.IsNullOrEmpty(searchDocumentId) ? null : searchDocumentId }, progress, token);
+                }
+                finally { receiving = false; }
                 answer = lastAnswer.Text;
-                status = "完成，用时 " + lastAnswer.ElapsedMilliseconds + " ms";
+                status = "完成 " + lastAnswer.ElapsedMilliseconds + " ms；首字 " + lastAnswer.FirstTokenMilliseconds
+                    + " ms；检索 " + lastAnswer.RetrievalMilliseconds + " ms；生成 " + lastAnswer.GenerationMilliseconds + " ms";
             });
             EditorGUILayout.EndHorizontal();
+            }
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("回答", EditorStyles.boldLabel);
             EditorGUILayout.TextArea(answer, GUILayout.MinHeight(100));
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(answer)))
+                if (GUILayout.Button("复制回答")) EditorGUIUtility.systemCopyBuffer = answer;
             if (lastAnswer != null)
                 foreach (var citation in lastAnswer.Citations)
                 {
                     EditorGUILayout.LabelField("[" + citation.Id + "] " + citation.Hit.Title + " / " + citation.Hit.Heading, EditorStyles.boldLabel);
                     EditorGUILayout.LabelField(citation.Hit.Source, EditorStyles.wordWrappedMiniLabel);
+                    EditorGUILayout.TextArea(citation.Hit.Text, GUILayout.MinHeight(65));
                 }
             foreach (var hit in hits)
             {

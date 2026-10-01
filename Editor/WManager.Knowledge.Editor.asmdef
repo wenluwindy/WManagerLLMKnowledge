@@ -1,6 +1,6 @@
 {
   "name": "WManager.Knowledge.Editor",
   "rootNamespace": "WManager.Knowledge.Editor",
-  "references": ["WManager.Knowledge.Core", "WManager.Knowledge.Runtime", "WManager.Knowledge.LLamaSharp"],
+  "references": ["WManager.Knowledge.Core", "WManager.Knowledge.Runtime", "WManager.Knowledge.LLamaSharp", "WManager.Knowledge.UGUI"],
   "includePlatforms": ["Editor"]
 }

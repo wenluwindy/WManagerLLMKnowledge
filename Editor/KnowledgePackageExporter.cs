@@ -8,6 +8,8 @@ namespace WManager.Knowledge.Editor
         public static string Export(string parentDirectory)
         {
             string source = Path.GetFullPath(KnowledgeCenterWindow.PackageDirectory);
+            if (!LlamaKnowledgeFactory.IsBackendInstalled(Path.Combine(source, "Plugins/Windows/x86_64")))
+                throw new InvalidOperationException("请先完全退出并重新打开 Unity，完成原生后端升级后再导出 SDK。");
             string parent = Path.GetFullPath(parentDirectory);
             string destination = Path.Combine(parent, "com.wmanager.knowledge");
             if (destination.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))

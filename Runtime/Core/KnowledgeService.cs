@@ -19,9 +19,15 @@ namespace WManager.Knowledge
         private readonly string fingerprint;
         private SqliteKnowledgeStore store;
         private int disposed;
+        public string BackendDescription { get; }
         private static readonly Regex CitationPattern = new Regex(@"\[S[0-9]+\]", RegexOptions.CultureInvariant);
 
         public KnowledgeService(KnowledgeOptions options, IEmbeddingProvider embeddings, IAnswerGenerator generator)
+            : this(options, embeddings, generator, null)
+        {
+        }
+
+        public KnowledgeService(KnowledgeOptions options, IEmbeddingProvider embeddings, IAnswerGenerator generator, string backendDescription)
         {
             if (options == null || string.IsNullOrWhiteSpace(options.DatabasePath)) throw new ArgumentException("DatabasePath is required.", nameof(options));
             this.options = new KnowledgeOptions
@@ -31,6 +37,7 @@ namespace WManager.Knowledge
             };
             this.embeddings = embeddings ?? throw new ArgumentNullException(nameof(embeddings));
             this.generator = generator ?? throw new ArgumentNullException(nameof(generator));
+            BackendDescription = backendDescription;
             if (options.ChunkTokens < 8 || options.ChunkTokens > embeddings.MaxInputTokens || options.OverlapTokens < 0 || options.OverlapTokens >= options.ChunkTokens)
                 throw new ArgumentException("Invalid chunk size or overlap for this embedding model.", nameof(options));
             fingerprint = KnowledgeHash.Text("schema=1;splitter=1;normalize=l2;" + embeddings.Fingerprint + ";dimensions=" + embeddings.Dimensions + ";chunk=" + options.ChunkTokens + ";overlap=" + options.OverlapTokens);
@@ -86,6 +93,22 @@ namespace WManager.Knowledge
             return RunAsync<object>(token => { token.ThrowIfCancellationRequested(); store.DeleteDocument(documentId); return Task.FromResult<object>(null); }, ct);
         }
 
+        public Task<IReadOnlyList<SearchHit>> ReadDocumentChunksAsync(string documentId, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(documentId)) throw new ArgumentException("A document ID is required.", nameof(documentId));
+            return RunAsync(token =>
+            {
+                var document = store.ListDocuments().FirstOrDefault(x => x.Id == documentId);
+                if (document == null) throw new ArgumentException("Document not found.", nameof(documentId));
+                IReadOnlyList<SearchHit> chunks = store.ReadChunks(documentId, token).OrderBy(x => x.Ordinal).Select(chunk => new SearchHit
+                {
+                    ChunkId = chunk.Id, DocumentId = document.Id, Title = document.Title, Source = document.Source,
+                    Heading = chunk.Heading, Text = chunk.Text, Ordinal = chunk.Ordinal
+                }).ToArray();
+                return Task.FromResult(chunks);
+            }, ct);
+        }
+
         public Task<SearchResult> SearchAsync(SearchRequest request, CancellationToken ct = default)
         {
             ValidateSearch(request);
@@ -125,6 +148,7 @@ namespace WManager.Knowledge
             {
                 var timer = Stopwatch.StartNew();
                 var result = await SearchInternalAsync(search, token).ConfigureAwait(false);
+                long retrievalMilliseconds = timer.ElapsedMilliseconds;
                 var evidence = new List<KnowledgeCitation>();
                 int promptBudget = generator.ContextTokens - generator.MaxOutputTokens - 64;
                 if (generator.CountTokens(generator.BuildPrompt(search.Question, evidence)) > promptBudget)
@@ -142,9 +166,20 @@ namespace WManager.Knowledge
                 {
                     const string missing = "现有资料中没有找到足够的依据。";
                     stream?.Report(new AnswerDelta { Text = missing });
-                    return new AnswerResult { Text = missing, InsufficientEvidence = true, ElapsedMilliseconds = timer.ElapsedMilliseconds };
+                    return new AnswerResult { Text = missing, InsufficientEvidence = true, ElapsedMilliseconds = timer.ElapsedMilliseconds,
+                        RetrievalMilliseconds = retrievalMilliseconds, FirstTokenMilliseconds = timer.ElapsedMilliseconds };
                 }
-                string answer = await generator.GenerateAsync(generator.BuildPrompt(search.Question, evidence), stream, token).ConfigureAwait(false);
+                string prompt = generator.BuildPrompt(search.Question, evidence);
+                int promptTokens = generator.CountTokens(prompt);
+                long firstTokenMilliseconds = -1;
+                var progress = new ForwardProgress<AnswerDelta>(delta =>
+                {
+                    if (firstTokenMilliseconds < 0 && !string.IsNullOrWhiteSpace(delta.Text)) firstTokenMilliseconds = timer.ElapsedMilliseconds;
+                    stream?.Report(delta);
+                });
+                long generationStart = timer.ElapsedMilliseconds;
+                string answer = await generator.GenerateAsync(prompt, progress, token).ConfigureAwait(false);
+                long generationMilliseconds = timer.ElapsedMilliseconds - generationStart;
                 token.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(answer)) throw new InvalidOperationException("The model returned no visible answer. Check its chat template and output budget.");
                 var used = new HashSet<string>(CitationPattern.Matches(answer).Cast<Match>().Select(x => x.Value.Trim('[', ']')), StringComparer.Ordinal);
@@ -153,7 +188,9 @@ namespace WManager.Knowledge
                 return new AnswerResult
                 {
                     Text = cleaned, Citations = evidence.Where(x => used.Contains(x.Id)).ToArray(), RetrievedEvidence = evidence.ToArray(),
-                    InsufficientEvidence = false, ElapsedMilliseconds = timer.ElapsedMilliseconds
+                    InsufficientEvidence = false, ElapsedMilliseconds = timer.ElapsedMilliseconds,
+                    RetrievalMilliseconds = retrievalMilliseconds, GenerationMilliseconds = generationMilliseconds,
+                    FirstTokenMilliseconds = firstTokenMilliseconds, PromptTokens = promptTokens
                 };
             }, ct);
         }
@@ -169,6 +206,13 @@ namespace WManager.Knowledge
                 createdUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture)
             });
         }, ct);
+
+        private sealed class ForwardProgress<T> : IProgress<T>
+        {
+            private readonly Action<T> report;
+            public ForwardProgress(Action<T> report) => this.report = report;
+            public void Report(T value) => report(value);
+        }
 
         private Task<T> RunAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct, bool requireInitialized = true)
         {
