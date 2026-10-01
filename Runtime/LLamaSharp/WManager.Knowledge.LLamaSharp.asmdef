@@ -1,0 +1,8 @@
+{
+  "name": "WManager.Knowledge.LLamaSharp",
+  "rootNamespace": "WManager.Knowledge",
+  "references": ["WManager.Knowledge.Core"],
+  "overrideReferences": true,
+  "precompiledReferences": ["LLamaSharp.dll", "Microsoft.Extensions.Logging.Abstractions.dll", "Microsoft.Bcl.AsyncInterfaces.dll"],
+  "noEngineReferences": true
+}

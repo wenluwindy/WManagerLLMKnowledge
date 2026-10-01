@@ -1,0 +1,4 @@
+{
+  "name": "WManager.Knowledge.Sample",
+  "references": ["WManager.Knowledge.Core", "WManager.Knowledge.Runtime"]
+}

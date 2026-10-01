@@ -1,0 +1,6 @@
+{
+  "name": "WManager.Knowledge.Core",
+  "rootNamespace": "WManager.Knowledge",
+  "references": [],
+  "noEngineReferences": true
+}

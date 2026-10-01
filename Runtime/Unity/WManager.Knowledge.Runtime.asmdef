@@ -1,0 +1,5 @@
+{
+  "name": "WManager.Knowledge.Runtime",
+  "rootNamespace": "WManager.Knowledge",
+  "references": ["WManager.Knowledge.Core", "WManager.Knowledge.LLamaSharp"]
+}
