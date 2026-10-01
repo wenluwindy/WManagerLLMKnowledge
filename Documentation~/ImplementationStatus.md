@@ -2,11 +2,29 @@
 
 日期：2026-10-01。
 
+当前包版本为 1.0.0，保留工程已有版本设置。用户已确认当前工程 Player 运行通过；此次修复尚未重新构建 Player，未创建其他工程。
+
+## 此次修复与验证
+
+- 修复 uGUI 资料刷新：未初始化时仅提示先初始化，不加载模型或创建数据库；空库显示“暂无资料”，有资料显示篇数。新增 KnowledgeIndexMismatchException，旧非空索引不兼容时显示中文处理提醒，不输出异常堆栈、不删除旧库。77 项核心回归及实际 Unity 6 项刷新检查通过，覆盖未初始化、空库、有资料、索引不兼容与异常日志；使用临时数据库及真实模型，测试数据已清理。插件分程序集编译零警告、零错误，Unity 编译无错误。
+
+- uGUI Demo 新增普通聊天页，使用现有 LlamaChatService，仅加载回答模型；支持多轮流式会话、取消、新会话、复制、释放/重新加载。当前工程场景和可导出 Sample 均已更新，保留已有场景对象。真实本地模型通过 9 项 UI 检查：导航、发送、未初始化 RAG、多轮上下文、取消保留、复制、释放、重载恢复、新会话；聊天页 1280×900/960×540 渲染与控件边界检查通过。插件分程序集编译零警告、零错误，实际 Unity 编译无错误；未重新构建 Player。
+
+- 构建检查处理实际构建场景，覆盖非活动组件；扫描 Assets 中 Resources 预制体，增加 KnowledgeBuildConfiguration 动态配置注册入口。配置的基础库校验文件、清单、哈希、数据库元数据、向量维度与当前索引兼容性。
+- 首次安装遇到缺失基础库/清单明确失败；已有用户工作库保留。新配置默认不安装基础库，已有资产不自动修改。
+- 修复重叠分块的章节/页码标题继承。SplitterVersion=2；旧非空索引需保留原资料，使用新 databaseName 重新导入并重新导出基础库。
+- 增加 AnswerResult.MissingCitations；有证据但无有效引用时返回失败提示，UI 标明引用校验失败。引用编号校验不等于事实一致性验证。
+- 完整回归 77 项、部署专项回归 12 项通过。后者覆盖真实 SQLite 基础库校验、已有库保留、缺文件/清单、哈希/指纹不匹配、取消及旧索引拒绝；核心推理采用明确标记的测试提供器。
+- 实际 Unity 中 10 项检查通过，包括重新加载的构建场景、非活动对象、动态配置、Resources、真实 Qwen3.5/BGE 引用回答、实际向量提供器与构建指纹一致、JsonUtility 清单与基础库安装及不兼容拒绝。临时文件和场景均清理。
+- 实际 Unity 编译无错误，工程有三项既有 StandaloneFileBrowser 示例 WWW 废弃警告；插件和示例的分程序集编译无警告、无错误。
+
+检查入口：Tools/Knowledge/Validation、Tools/Knowledge/Audit、Tools/Knowledge/ValidateReleaseFixes.json。历史审计问题的处理见 AuditReport.md；使用与升级步骤见 UserGuide.md。
+
 ## 已实现
 
 - 0.1.4：uGUI Demo 场景、独立 ugui-demo.db、资料管理/文件路径导入/片段预览、限定资料检索、流式问答/取消/复制、本次运行配置。UI 位于独立 UGUI 程序集，依赖 com.unity.ugui；附带 UPM Sample 和场景生成菜单。使用文档 UserGuide.md，API 文档 API.md。
 
-- 独立 UPM 包与四个程序集，核心无 UnityEngine 引用。
+- 独立 UPM 包与 Core、LLamaSharp、Runtime、UGUI、Editor 五个程序集，核心无 UnityEngine 引用。
 - 锁定 LLamaSharp 0.27.0 与同版本 CPU/Vulkan 后端，支持 Qwen3.5；附带托管依赖与原生升级文件。
 - Windows SQLite 数据库、外键删除、事务替换、WAL、一致性 backup 导出。
 - 模型哈希和索引指纹；不兼容参数阻止混用。
@@ -24,7 +42,7 @@
 - AVX2 CPU 分发、Auto/Cpu/Vulkan 配置、GPU 层数控制、GPU 初始化预热；Qwen 非思考生成后缀修复和 StatelessExecutor 复用。
 - 问答检索、首字、生成、总耗时与提示词 Token 数统计。
 
-## 验证记录
+## 历史验证记录
 
 0.1.4：当前 Unity 6000.2.3f1 实际编译零警告、零错误；命令行按 Core、LLamaSharp、Runtime、UGUI、Editor 和示例程序集分别编译，零警告、零错误。在当前工程生成了完整 uGUI 场景，验证组件引用、EventSystem、页签切换、会话配置隔离、复制和 1280×900/960×540 控件边界，渲染截图后修正布局与文本留白。未创建新工程。
 
@@ -60,9 +78,9 @@ AVX2 + Vulkan 新库已准备在 NativeUpdate~。当前 Unity 仍占用原 CPU n
 2. 完全重启 Unity，在设置页确认模型与 Auto/Cpu/Vulkan 模式，初始化并确认升级后的 Unity 内推理和耗时。
 3. 导入中文说明资料，验证检索、带引用回答与无依据拒答。
 4. 更新、删除、取消导入、重启编辑器，验证持久化与旧内容清理。
-5. 导出基础库，当前工程 Windows x64 Player 验证首次安装、运行时扩展、重启恢复。
+5. 用户已确认当前工程 Player 运行通过；此次修复后重新构建，按新索引验证首次安装、运行时扩展、重启恢复及异常路径。
 6. 评估速度、内存和真实问题集；之后再安排其他工程接入与 IL2CPP。
 
 ## 后续扩展
 
-PDF/Word/OCR、中文关键词融合、大规模 ANN 索引、向量缓存、CUDA 可选后端、多轮会话、基础库版本迁移与冲突合并。
+扫描文档 OCR、旧 DOC/PPT、中文关键词融合、大规模 ANN 索引、向量缓存、CUDA 可选后端、多轮 RAG、基础库版本迁移与冲突合并。

@@ -9,6 +9,7 @@ namespace WManager.Knowledge
         public uint Version { get; private set; }
         public ulong TensorCount { get; private set; }
         public string Architecture { get; private set; }
+        public int EmbeddingDimensions { get; private set; }
 
         public static GgufModelInfo Read(string path)
         {
@@ -29,10 +30,13 @@ namespace WManager.Knowledge
                     if (key == "general.architecture" && type == 8)
                     {
                         info.Architecture = ReadString(reader);
-                        return info;
+                        continue;
                     }
+                    if (key.EndsWith(".embedding_length", StringComparison.Ordinal) && type == 4)
+                    { info.EmbeddingDimensions = checked((int)reader.ReadUInt32()); continue; }
                     SkipValue(reader, type);
                 }
+                if (!string.IsNullOrWhiteSpace(info.Architecture)) return info;
                 throw new InvalidDataException("GGUF 缺少 general.architecture 元数据：" + path);
             }
         }

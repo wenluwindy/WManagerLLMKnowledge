@@ -24,7 +24,18 @@ namespace WManager.Knowledge
             var result = new List<StoredChunk>();
             text = text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
             int start = 0;
-            string heading = string.Empty;
+            var headings = new List<(int Offset, string Text)>();
+            int lineStart = 0;
+            foreach (string line in text.Split('\n'))
+            {
+                if (line.StartsWith("#", StringComparison.Ordinal))
+                {
+                    string candidate = line.TrimStart('#', ' ', '\t').TrimEnd();
+                    if (candidate.Length > 0) headings.Add((lineStart, candidate));
+                }
+                lineStart += line.Length + 1;
+            }
+            int headingIndex = -1;
             while (start < text.Length)
             {
                 ct.ThrowIfCancellationRequested();
@@ -37,15 +48,10 @@ namespace WManager.Knowledge
                     if (paragraph > start + length / 2) end = paragraph + 2;
                 }
                 string body = text.Substring(start, end - start).Trim();
-                foreach (string line in body.Split('\n'))
-                {
-                    if (line.StartsWith("#", StringComparison.Ordinal))
-                    {
-                        string candidate = line.TrimStart('#', ' ', '\t');
-                        if (candidate.Length > 0) heading = candidate;
-                        break;
-                    }
-                }
+                while (headingIndex + 1 < headings.Count && headings[headingIndex + 1].Offset <= start) headingIndex++;
+                string heading = headingIndex >= 0 ? headings[headingIndex].Text : string.Empty;
+                if (heading.Length == 0 && headingIndex + 1 < headings.Count && headings[headingIndex + 1].Offset < end)
+                    heading = headings[headingIndex + 1].Text;
                 if (body.Length > 0)
                 {
                     int ordinal = result.Count;

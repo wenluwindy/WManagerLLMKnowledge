@@ -22,6 +22,12 @@ namespace WManager.Knowledge
         public string LastError { get; private set; }
         public string EditorNativeLibraryDirectory { set => editorNativeLibraryDirectory = value; }
 
+        public string ResolveNativeLibraryDirectory() => Application.isEditor
+            ? (string.IsNullOrWhiteSpace(editorNativeLibraryDirectory)
+                ? Path.GetFullPath(Path.Combine(Application.dataPath, "../Packages/com.wmanager.knowledge/Plugins/Windows/x86_64"))
+                : editorNativeLibraryDirectory)
+            : Path.Combine(Application.dataPath, "Plugins", "x86_64");
+
         private void Awake() => lifetime = new CancellationTokenSource();
         private async void Start()
         {
@@ -47,18 +53,17 @@ namespace WManager.Knowledge
             LastError = null;
             string databaseDirectory = Path.Combine(Application.persistentDataPath, "Knowledge", "Databases");
             var options = settings.CreateKnowledgeOptions(databaseDirectory);
-            string nativeDirectory = Application.isEditor
-                ? (string.IsNullOrWhiteSpace(editorNativeLibraryDirectory)
-                    ? Path.GetFullPath(Path.Combine(Application.dataPath, "../Packages/com.wmanager.knowledge/Plugins/Windows/x86_64"))
-                    : editorNativeLibraryDirectory)
-                : Path.Combine(Application.dataPath, "Plugins", "x86_64");
+            string nativeDirectory = ResolveNativeLibraryDirectory();
             var backend = settings.CreateBackendOptions(nativeDirectory);
             using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetime.Token))
             {
                 try
                 {
                     if (!string.IsNullOrWhiteSpace(settings.seedDatabase))
-                        await KnowledgeDeployment.InstallSeedAsync(settings.ResolveStreamingPath(settings.seedDatabase), settings.ResolveStreamingPath(settings.seedManifest), options.DatabasePath, linked.Token);
+                    {
+                        string expected = File.Exists(options.DatabasePath) ? null : LlamaKnowledgeFactory.CreateIndexFingerprint(options, backend);
+                        await KnowledgeDeployment.InstallSeedAsync(settings.ResolveStreamingPath(settings.seedDatabase), settings.ResolveStreamingPath(settings.seedManifest), options.DatabasePath, linked.Token, expected);
+                    }
                     pendingCreation = LlamaKnowledgeFactory.CreateAsync(options, backend, linked.Token);
                     var created = await pendingCreation;
                     pendingCreation = null;

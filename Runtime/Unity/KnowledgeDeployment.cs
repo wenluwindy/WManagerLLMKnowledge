@@ -8,27 +8,17 @@ namespace WManager.Knowledge
 {
     public static class KnowledgeDeployment
     {
-        public static Task InstallSeedAsync(string sourceDatabase, string sourceManifest, string destinationDatabase, CancellationToken ct)
+        public static Task InstallSeedAsync(string sourceDatabase, string sourceManifest, string destinationDatabase, CancellationToken ct, string expectedFingerprint = null)
         {
             ct.ThrowIfCancellationRequested();
             if (File.Exists(destinationDatabase)) return Task.CompletedTask;
             // Capture Unity serialization on the main thread; disk copying and hashing run in the background.
-            KnowledgeExport manifest = null;
-            if (File.Exists(sourceDatabase))
-            {
-                if (!File.Exists(sourceManifest)) throw new FileNotFoundException("The seed database needs its exported manifest.", sourceManifest);
-                manifest = JsonUtility.FromJson<KnowledgeExport>(File.ReadAllText(sourceManifest));
-                if (manifest == null || manifest.schemaVersion != 1 || string.IsNullOrWhiteSpace(manifest.databaseSha256))
-                    throw new InvalidDataException("Invalid seed manifest.");
-            }
+            var manifest = ReadSeedManifest(sourceDatabase, sourceManifest);
             return Task.Run(() =>
             {
                 ct.ThrowIfCancellationRequested();
-                if (File.Exists(destinationDatabase) || manifest == null) return;
-                if (!string.Equals(manifest.databaseFile, Path.GetFileName(sourceDatabase), StringComparison.Ordinal))
-                    throw new InvalidDataException("Seed manifest filename mismatch.");
-                if (!string.Equals(KnowledgeHash.File(sourceDatabase), manifest.databaseSha256, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Seed database checksum mismatch.");
+                if (File.Exists(destinationDatabase)) return;
+                KnowledgeIndex.ValidateSeed(sourceDatabase, manifest, expectedFingerprint);
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destinationDatabase)));
                 string temporary = destinationDatabase + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 try
@@ -54,6 +44,13 @@ namespace WManager.Knowledge
         {
             string path = Path.ChangeExtension(databasePath, ".manifest.json");
             File.WriteAllText(path, JsonUtility.ToJson(manifest, true), new System.Text.UTF8Encoding(false));
+        }
+
+        public static KnowledgeExport ReadSeedManifest(string sourceDatabase, string sourceManifest)
+        {
+            if (!File.Exists(sourceDatabase)) throw new FileNotFoundException("配置的基础知识库不存在，请导出基础库或清空 seedDatabase。", sourceDatabase);
+            if (!File.Exists(sourceManifest)) throw new FileNotFoundException("The seed database needs its exported manifest.", sourceManifest);
+            return JsonUtility.FromJson<KnowledgeExport>(File.ReadAllText(sourceManifest)) ?? throw new InvalidDataException("Invalid seed manifest.");
         }
     }
 }

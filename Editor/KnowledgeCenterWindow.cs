@@ -320,7 +320,7 @@ namespace WManager.Knowledge.Editor
                 }
                 finally { receiving = false; }
                 answer = lastAnswer.Text;
-                status = "完成 " + lastAnswer.ElapsedMilliseconds + " ms；首字 " + lastAnswer.FirstTokenMilliseconds
+                status = (lastAnswer.MissingCitations ? "引用校验失败 " : "完成 ") + lastAnswer.ElapsedMilliseconds + " ms；首字 " + lastAnswer.FirstTokenMilliseconds
                     + " ms；检索 " + lastAnswer.RetrievalMilliseconds + " ms；生成 " + lastAnswer.GenerationMilliseconds + " ms";
             });
             EditorGUILayout.EndHorizontal();

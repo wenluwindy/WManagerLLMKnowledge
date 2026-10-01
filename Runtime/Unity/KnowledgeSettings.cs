@@ -11,8 +11,8 @@ namespace WManager.Knowledge
         public string embeddingModel = "Knowledge/Models/bge-small-zh-v1.5-q8_0.gguf";
         [Header("Writable database")]
         public string databaseName = "default.db";
-        public string seedDatabase = "Knowledge/Base/default.db";
-        public string seedManifest = "Knowledge/Base/default.manifest.json";
+        public string seedDatabase = "";
+        public string seedManifest = "";
         [Header("Embedding and splitting")]
         [Range(32, 480)] public int chunkTokens = 320;
         [Range(0, 160)] public int overlapTokens = 48;

@@ -14,6 +14,14 @@
 4. 在“问答”页选择“全部资料”或单篇资料，输入“设备保修期限是多少？”。“检索”只展示相关片段；“提问”输出带来源编号的回答。答案下方列出引用资料、标题和来源路径，顶部显示首字、检索与总耗时。
 5. “取消”中断当前操作；“复制内容”复制检索结果、预览片段或回答。结果区支持滚轮与拖动。
 
+### 普通聊天
+
+切换到“普通聊天”页，输入消息后点击“发送”。首次发送自动加载配置页指定的回答模型，无需先点击“初始化”，不初始化知识库，也不读取向量模型或检索资料。多轮上下文独立于知识库问答；超出 Token 预算时按完整轮次裁剪最早历史。
+
+顶部“取消”可以中断发送；取消或失败保留输入及已完成的会话，不提交半轮回答。“新会话”清空历史，“复制会话”复制显示内容，“释放聊天模型”释放权重但保留本次会话，下一次发送重新加载后恢复历史。停止播放或销毁 Demo 后会话不保存。系统提示词可在 KnowledgeUGUIDemo Inspector 的 Chat System Prompt 中设置。
+
+聊天和 RAG 分别加载模型，同时启用会增加内存/显存占用。只测试聊天时直接发送即可；聊天模型加载后配置不能应用，需先释放聊天模型。RAG 已初始化时仍需停止播放后修改配置。
+
 ### 文件导入、更新与删除
 
 资料页在“本地文档路径”中填完整文件路径，点击“导入文件”。支持 TXT/MD、DOCX/DOCM、PPTX/PPTM、XLS/XLSX/XLSM 和文字型 PDF。文件选择对话框由业务工程提供；本示例采用路径输入，因此无需外部对话框插件。
@@ -34,9 +42,13 @@ CanvasScaler 按参考高度 800 缩放。已检查 1280×900、960×540 的控�
 
 打开 `Tools > WManager > Knowledge Center`，指定 KnowledgeSettings。设置页选择模型，初始化后在资料页导入文档或手动输入。资料列表提供筛选、删除和正文片段预览；问答页可先检索再提问，并限定检索范围。
 
+uGUI 资料页的“刷新”只更新已初始化的资料列表，不自动加载模型。未初始化时提示先初始化；初始化后的空库提示“暂无资料”。已有非空库索引不兼容时明确提示恢复原配置或换新 databaseName 重新导入，不视为空库，也不会删除旧资料。
+
 编辑器工作库默认为 `UserSettings/Knowledge/Databases/default.db`，实际文件名由配置的 databaseName 决定。运行时工作库位于 `Application.persistentDataPath/Knowledge/Databases`，两者分别维护。
 
 使用“导出基础知识库”导出到 `Assets/StreamingAssets/Knowledge/Base/` 的空目录，得到数据库和 `.manifest.json`。在正式运行时配置 seedDatabase 和 seedManifest，首次启动验证哈希并复制到可写目录；已有用户工作库不覆盖。Demo 默认清空这两个配置，因此只展示可写库流程。
+
+此次修复将分块索引版本升级为 2，纠正后续片段继承错误章节的问题。升级前先保留原始资料并备份旧数据库；释放服务，给配置设置新的 databaseName（例如 default-v2.db、ugui-demo-v2.db），重新导入原资料，再重新导出基础库并更新 seedDatabase/seedManifest。编辑器与 Player 的旧非空工作库都需要此处理，不会自动迁移。未使用基础库时清空 seedDatabase；新配置默认留空，已有配置资产保留原值。当前工程 KnowledgeSettings 若仍指向未导出的 Knowledge/Base/default.db，必须先导出或清空该字段。
 
 ## 3. 模型配置与速度
 
@@ -56,11 +68,13 @@ CPU 模式使用分发的 AVX2 原生库；Vulkan 使用显卡驱动，Auto 会�
 
 模型放在 `Assets/StreamingAssets/Knowledge/Models/`。构建处理器检查平台、模型和原生版本，并复制 CPU/Vulkan 后端。目标机器安装 Microsoft Visual C++ x64 Redistributable，并为 Vulkan 模式安装显卡驱动。
 
+构建检查针对实际构建的每个场景，包括非活动 KnowledgeRuntime，另会检查 Assets 中 Resources 预制体。如果通过 Addressables、AssetBundle 或代码动态赋予配置，在 Project 窗口选择 `Create > WManager > Knowledge Build Configuration`，将这些 KnowledgeSettings 填入 dynamicSettings 列表。配置了基础库时还会检查文件/清单、哈希、数据库元数据和当前索引兼容性；这些错误会阻止构建。
+
 业务代码通过 `await runtime.InitializeAsync(ct)` 初始化，之后调用 `runtime.Service` 的导入、搜索和问答 API。文件导入使用 `runtime.ImportFileAsync`；文件选择、用户权限、删除确认及 UI 由业务工程管理。主线程创建 `Progress<T>` 才能让进度和流式回调回到 Unity UI 线程。
 
 模型已经加载后重复初始化复用服务；对象销毁时 KnowledgeRuntime 取消任务并释放资源。Shutdown 是终止操作，同一组件不能再次初始化；需要重新启动时创建新的运行时组件。
 
-已在当前 Unity 编辑器中通过 uGUI 控制器和实际本地 Qwen3.5/BGE 完成初始化、保存、限定检索、流式引用回答、文件导入与确认删除检查，测试资料已清理。该检查通过临时场景实例执行，不代表正式 Player 验收；Windows 发布后的持久化与其他工程接入仍需业务验收。IL2CPP 尚未完成兼容性验收。
+用户已确认当前工程 Player 运行通过。此次修复后，实际 Unity 检查了构建配置、真实 Qwen3.5/BGE 引用回答以及基础库首次安装/指纹不兼容拒绝，临时资料已清理；尚未重新构建 Player。完整发布异常场景、业务性能和其他工程接入仍需验收。IL2CPP 尚未完成兼容性验收。
 
 ## 5. 导出其他工程
 
@@ -78,6 +92,9 @@ Knowledge Center 配置页点击“导出独立 UPM 包”，选择外部父目�
 | 文档为空或 PDF 提示 OCR | 图片没有可读取文字，先做 OCR；旧 DOC/PPT 需另存为新格式 |
 | 没有检索结果 | 先确认资料入库、检索范围与向量模型；调整 minimumScore 前先看检索结果 |
 | 参数改变后提示索引不兼容 | 使用新 databaseName 并重新导入 |
+| 升级后旧库提示索引不兼容 | 分块版本已为 2；保留原资料，新数据库名重新导入并重新导出基础库 |
+| 缺少基础库或 manifest，构建/初始化失败 | 导出相匹配的数据库与清单；不使用基础库时清空 seedDatabase |
+| 回答提示引用校验失败 | 模型未给出有效 [S编号]；查看检索证据并调整模型/提示词，业务 UI 用最终 Text 覆盖流式草稿 |
 | 运行时按钮没有响应 | 检查 EventSystem、GraphicRaycaster、Active Input Handling；操作中除取消外主要按钮会锁定 |
 | 保存旧资料提示正文为空 | 请输入完整替换正文，或者重新导入原文件 |
 | 字体乱码或方框 | 指定覆盖中文字符的字体资产 |

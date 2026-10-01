@@ -40,7 +40,7 @@ namespace WManager.Knowledge
             BackendDescription = backendDescription;
             if (options.ChunkTokens < 8 || options.ChunkTokens > embeddings.MaxInputTokens || options.OverlapTokens < 0 || options.OverlapTokens >= options.ChunkTokens)
                 throw new ArgumentException("Invalid chunk size or overlap for this embedding model.", nameof(options));
-            fingerprint = KnowledgeHash.Text("schema=1;splitter=1;normalize=l2;" + embeddings.Fingerprint + ";dimensions=" + embeddings.Dimensions + ";chunk=" + options.ChunkTokens + ";overlap=" + options.OverlapTokens);
+            fingerprint = KnowledgeIndex.CreateFingerprint(this.options, embeddings.Fingerprint, embeddings.Dimensions);
         }
 
         public Task InitializeAsync(CancellationToken ct = default) => RunAsync<object>(token =>
@@ -185,9 +185,12 @@ namespace WManager.Knowledge
                 var used = new HashSet<string>(CitationPattern.Matches(answer).Cast<Match>().Select(x => x.Value.Trim('[', ']')), StringComparer.Ordinal);
                 var validIds = new HashSet<string>(evidence.Select(x => x.Id), StringComparer.Ordinal);
                 string cleaned = CitationPattern.Replace(answer, match => validIds.Contains(match.Value.Trim('[', ']')) ? match.Value : string.Empty);
+                var citations = evidence.Where(x => used.Contains(x.Id)).ToArray();
+                bool missingCitations = citations.Length == 0;
                 return new AnswerResult
                 {
-                    Text = cleaned, Citations = evidence.Where(x => used.Contains(x.Id)).ToArray(), RetrievedEvidence = evidence.ToArray(),
+                    Text = missingCitations ? "模型未提供有效来源引用，无法形成可追溯的回答。" : cleaned,
+                    MissingCitations = missingCitations, Citations = citations, RetrievedEvidence = evidence.ToArray(),
                     InsufficientEvidence = false, ElapsedMilliseconds = timer.ElapsedMilliseconds,
                     RetrievalMilliseconds = retrievalMilliseconds, GenerationMilliseconds = generationMilliseconds,
                     FirstTokenMilliseconds = firstTokenMilliseconds, PromptTokens = promptTokens

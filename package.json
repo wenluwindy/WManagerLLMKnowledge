@@ -1,6 +1,6 @@
 {
   "name": "com.wmanager.knowledge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayName": "WManager Knowledge",
   "description": "使用适用于 Windows x64 的 LLamaSharp 和 RAG 实现离线、可编辑的本地知识库。",
   "unity": "6000.2",

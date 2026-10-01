@@ -5,6 +5,12 @@ using System.Threading.Tasks;
 
 namespace WManager.Knowledge
 {
+    public sealed class KnowledgeIndexMismatchException : InvalidOperationException
+    {
+        public KnowledgeIndexMismatchException()
+            : base("已有知识库的索引与当前向量模型、分块参数或分块版本不兼容。请恢复原配置，或保留原资料、修改 databaseName 后重新导入。") { }
+    }
+
     public interface IKnowledgeService : IDisposable
     {
         Task InitializeAsync(CancellationToken ct = default);
@@ -144,6 +150,7 @@ namespace WManager.Knowledge
     {
         public string Text;
         public bool InsufficientEvidence;
+        public bool MissingCitations;
         public IReadOnlyList<KnowledgeCitation> Citations = Array.Empty<KnowledgeCitation>();
         public IReadOnlyList<KnowledgeCitation> RetrievedEvidence = Array.Empty<KnowledgeCitation>();
         public long ElapsedMilliseconds;

@@ -1,30 +1,67 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using PackageInfo = UnityEditor.PackageManager.PackageInfo;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace WManager.Knowledge.Editor
 {
-    internal sealed class KnowledgeBuildProcessor : IPreprocessBuildWithReport, IPostprocessBuildWithReport
+    internal sealed class KnowledgeBuildProcessor : IPreprocessBuildWithReport, IProcessSceneWithReport, IPostprocessBuildWithReport
     {
         public int callbackOrder => 0;
+        private readonly HashSet<int> validated = new HashSet<int>();
 
         public void OnPreprocessBuild(BuildReport report)
         {
-            var runtimes = UnityEngine.Object.FindObjectsByType<KnowledgeRuntime>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            if (runtimes.Length == 0) return;
+            validated.Clear();
+            ValidateDynamicSettings(report.summary.platform);
+        }
+
+        private void ValidateDynamicSettings(BuildTarget target)
+        {
+            foreach (string guid in AssetDatabase.FindAssets("t:KnowledgeBuildConfiguration"))
+            {
+                var configuration = AssetDatabase.LoadAssetAtPath<KnowledgeBuildConfiguration>(AssetDatabase.GUIDToAssetPath(guid));
+                if (configuration.dynamicSettings == null) throw new BuildFailedException("Dynamic knowledge settings list is missing.");
+                foreach (var settings in configuration.dynamicSettings) ValidateSettings(settings, target);
+            }
+            foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (path.IndexOf("/Resources/", StringComparison.Ordinal) < 0) continue;
+                foreach (var runtime in AssetDatabase.LoadAssetAtPath<GameObject>(path).GetComponentsInChildren<KnowledgeRuntime>(true))
+                    ValidateSettings(runtime.Settings, target);
+            }
+        }
+
+        public void OnProcessScene(Scene scene, BuildReport report)
+        {
+            if (report == null) return;
+            ValidateScene(scene, report.summary.platform);
+        }
+
+        private void ValidateScene(Scene scene, BuildTarget target)
+        {
+            foreach (var root in scene.GetRootGameObjects())
+                foreach (var runtime in root.GetComponentsInChildren<KnowledgeRuntime>(true))
+                    ValidateSettings(runtime.Settings, target);
+        }
+
+        private void ValidateSettings(KnowledgeSettings settings, BuildTarget target)
+        {
+            if (settings == null) throw new BuildFailedException("KnowledgeRuntime or dynamic build configuration has no KnowledgeSettings asset.");
+            if (validated.Contains(settings.GetInstanceID())) return;
             string nativeDirectory = Path.Combine(PackageInfo.FindForAssembly(typeof(KnowledgeBuildProcessor).Assembly).resolvedPath, "Plugins/Windows/x86_64");
             if (!LlamaKnowledgeFactory.IsBackendInstalled(nativeDirectory))
                 throw new BuildFailedException("请先完全退出并重新打开 Unity，完成 LLamaSharp 配套原生库升级。");
-            if (report.summary.platform != BuildTarget.StandaloneWindows64)
+            if (target != BuildTarget.StandaloneWindows64)
                 throw new BuildFailedException("WManager Knowledge currently supports Windows x64 only.");
-            foreach (var runtime in runtimes)
+            try
             {
-                var settings = runtime.Settings;
-                if (settings == null) throw new BuildFailedException("KnowledgeRuntime has no KnowledgeSettings asset.");
                 foreach (string model in new[] { settings.generationModel, settings.embeddingModel })
                 {
                     if (Path.IsPathRooted(model)) throw new BuildFailedException("Bundled builds require model paths relative to StreamingAssets.");
@@ -32,8 +69,21 @@ namespace WManager.Knowledge.Editor
                     if (!File.Exists(path)) throw new BuildFailedException("Missing model: " + path);
                     GgufModelInfo.Read(path);
                 }
-                settings.CreateKnowledgeOptions(Path.Combine(Application.persistentDataPath, "Knowledge/Databases"));
+                var options = settings.CreateKnowledgeOptions(Path.Combine(Application.persistentDataPath, "Knowledge/Databases"));
+                if (!string.IsNullOrWhiteSpace(settings.seedDatabase))
+                {
+                    string database = settings.ResolveStreamingPath(settings.seedDatabase);
+                    var manifest = KnowledgeDeployment.ReadSeedManifest(database, settings.ResolveStreamingPath(settings.seedManifest));
+                    string modelPath = settings.ResolveModelPath(settings.embeddingModel);
+                    int dimensions = GgufModelInfo.Read(modelPath).EmbeddingDimensions;
+                    if (dimensions < 1 || dimensions != manifest.dimensions) throw new InvalidDataException("基础库向量维度与 GGUF 模型不匹配。");
+                    string fingerprint = LlamaKnowledgeFactory.CreateIndexFingerprint(options, settings.CreateBackendOptions(nativeDirectory));
+                    KnowledgeIndex.ValidateSeed(database, manifest, fingerprint);
+                }
             }
+            catch (Exception exception) when (!(exception is BuildFailedException))
+            { throw new BuildFailedException("Knowledge configuration '" + settings.name + "': " + exception.Message); }
+            validated.Add(settings.GetInstanceID());
         }
 
         public void OnPostprocessBuild(BuildReport report)

@@ -21,6 +21,14 @@ namespace WManager.Knowledge.Samples
         [SerializeField] private Button cancel, initialize, save, remove, import, refresh, search, ask, apply;
         [SerializeField] private Button documentTab, answerTab, settingsTab, copy, preview;
         [SerializeField] private GameObject documentPage, answerPage, settingsPage;
+        [SerializeField] private Button chatTab, chatSend, chatClear, chatCopy, chatRelease;
+        [SerializeField] private GameObject chatPage;
+        [SerializeField] private InputField chatInput;
+        [SerializeField] private Text chatOutput;
+        [SerializeField, TextArea(3, 8)] private string chatSystemPrompt = "你是一个可靠的中文助手。回答清晰、简洁，不确定时说明不确定。";
+        private LlamaChatService chatService;
+        private Task<LlamaChatService> pendingChat;
+        private readonly List<ChatMessage> chatHistory = new List<ChatMessage>();
         private KnowledgeRuntime runtime;
         private KnowledgeSettings sessionSettings;
         private readonly List<KnowledgeDocument> entries = new List<KnowledgeDocument>();
@@ -36,13 +44,26 @@ namespace WManager.Knowledge.Samples
         {
             alive = true;
             runtime = GetComponent<KnowledgeRuntime>();
-            if (status == null) BuildUI();
+            BuildUI();
             EnsureEventSystem();
             if (font == null) font = chineseFont != null ? chineseFont : Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, 18);
             foreach (var label in GetComponentsInChildren<Text>(true)) label.font = font;
             documentTab.onClick.AddListener(() => ShowPage(documentPage));
             answerTab.onClick.AddListener(() => ShowPage(answerPage));
             settingsTab.onClick.AddListener(() => ShowPage(settingsPage));
+            chatTab.onClick.AddListener(() => ShowPage(chatPage));
+            chatSend.onClick.AddListener(() => Run(SendChat));
+            chatClear.onClick.AddListener(() => Run(async token =>
+            {
+                if (chatService != null) await chatService.RestoreHistoryAsync(Array.Empty<ChatMessage>(), token);
+                chatHistory.Clear(); chatOutput.text = ""; SetStatus("新会话已开始");
+            }));
+            chatCopy.onClick.AddListener(() => GUIUtility.systemCopyBuffer = chatOutput.text);
+            chatRelease.onClick.AddListener(() =>
+            {
+                chatService?.Dispose(); chatService = null;
+                UpdateControls(); SetStatus("聊天模型已释放");
+            });
             copy.onClick.AddListener(() => GUIUtility.systemCopyBuffer = output.text);
             preview.onClick.AddListener(() => ShowPage(answerPage));
             if (runtime.Settings != null)
@@ -53,9 +74,9 @@ namespace WManager.Knowledge.Samples
                 embeddingPath.text = sessionSettings.embeddingModel;
                 acceleration.value = (int)sessionSettings.acceleration;
             }
-            initialize.onClick.AddListener(() => Run(async token => { await Ready(token); SetStatus("知识库已就绪"); }));
+            initialize.onClick.AddListener(() => Run(async token => { await Ready(token); SetStatus(entries.Count == 0 ? "知识库已就绪，暂无资料" : "知识库已就绪"); }));
             cancel.onClick.AddListener(() => { operation?.Cancel(); SetStatus("正在取消…"); });
-            refresh.onClick.AddListener(() => Run(async token => { await Ready(token); SetStatus("资料列表已刷新"); }));
+            refresh.onClick.AddListener(() => Run(RefreshList));
             documents.onValueChanged.AddListener(_ => SelectDocument());
             save.onClick.AddListener(() => Run(SaveDocument));
             remove.onClick.AddListener(DeleteDocument);
@@ -72,6 +93,17 @@ namespace WManager.Knowledge.Samples
             SetStatus("正在初始化并读取资料…");
             await runtime.InitializeAsync(token);
             await RefreshDocuments(token);
+        }
+
+        private async Task RefreshList(CancellationToken token)
+        {
+            if (!runtime.IsReady)
+            {
+                SetStatus("资料尚未加载，请先初始化知识库");
+                return;
+            }
+            await RefreshDocuments(token);
+            SetStatus(entries.Count == 0 ? "暂无资料" : "资料列表已刷新 · " + entries.Count + " 篇");
         }
 
         private async Task RefreshDocuments(CancellationToken token, string selectedId = null)
@@ -197,7 +229,7 @@ namespace WManager.Knowledge.Samples
                 text.AppendLine().Append('[').Append(citation.Id).Append("] ").Append(citation.Hit.Title)
                     .Append(" / ").Append(citation.Hit.Heading).Append(" / ").Append(citation.Hit.Source);
             output.text = text.ToString();
-            SetStatus((result.InsufficientEvidence ? "资料不足" : "回答完成") + " · 首字 " + result.FirstTokenMilliseconds
+            SetStatus((result.InsufficientEvidence ? "资料不足" : result.MissingCitations ? "引用校验失败" : "回答完成") + " · 首字 " + result.FirstTokenMilliseconds
                 + " ms · 检索 " + result.RetrievalMilliseconds + " ms · 总计 " + result.ElapsedMilliseconds + " ms");
         }
 
@@ -205,6 +237,58 @@ namespace WManager.Knowledge.Samples
         {
             if (string.IsNullOrWhiteSpace(question.text)) throw new ArgumentException("请输入问题");
             return question.text.Trim();
+        }
+
+        private async Task SendChat(CancellationToken token)
+        {
+            string input = chatInput.text.Trim();
+            if (input.Length == 0) throw new ArgumentException("请输入消息");
+            if (sessionSettings == null) throw new InvalidOperationException("请在 Inspector 指定 KnowledgeSettings");
+            string previous = FormatChatHistory();
+            try
+            {
+                if (chatService == null)
+                {
+                    SetStatus("正在加载聊天模型…");
+                    pendingChat = LlamaChatService.CreateAsync(sessionSettings.CreateBackendOptions(runtime.ResolveNativeLibraryDirectory()), chatSystemPrompt, token);
+                    var created = await pendingChat;
+                    pendingChat = null;
+                    if (!alive || token.IsCancellationRequested) { created.Dispose(); token.ThrowIfCancellationRequested(); return; }
+                    chatService = created;
+                    await chatService.RestoreHistoryAsync(chatHistory, token);
+                }
+                SetStatus("正在回复…");
+                int current = revision;
+                var draft = new StringBuilder();
+                string prefix = previous + "我：" + input + "\n\n助手：";
+                chatOutput.text = prefix;
+                var stream = new Progress<AnswerDelta>(delta =>
+                {
+                    if (!alive || current != revision || token.IsCancellationRequested) return;
+                    draft.Append(delta.Text); chatOutput.text = prefix + draft;
+                });
+                var result = await chatService.SendAsync(input, stream, token);
+                revision++;
+                if (!alive) return;
+                chatHistory.Clear(); chatHistory.AddRange(result.History);
+                chatOutput.text = FormatChatHistory(); chatInput.text = "";
+                SetStatus("聊天完成 · 首字 " + result.FirstTokenMilliseconds + " ms · 总计 " + result.ElapsedMilliseconds
+                    + " ms · 裁剪 " + result.DroppedTurns + " 轮历史");
+            }
+            catch
+            {
+                revision++;
+                if (alive) chatOutput.text = previous;
+                throw;
+            }
+        }
+
+        private string FormatChatHistory()
+        {
+            var text = new StringBuilder();
+            foreach (var message in chatHistory)
+                text.Append(message.Role == ChatRole.User ? "我：" : "助手：").AppendLine(message.Text).AppendLine();
+            return text.ToString();
         }
 
         private IProgress<ImportProgress> ImportProgress()
@@ -221,7 +305,7 @@ namespace WManager.Knowledge.Samples
         private void ApplySettings()
         {
             if (sessionSettings == null) { SetStatus("请在 Inspector 指定 KnowledgeSettings"); return; }
-            if (runtime.IsReady) { SetStatus("模型已加载，请停止播放后修改配置"); return; }
+            if (runtime.IsReady || chatService != null) { SetStatus("模型已加载，请释放聊天模型或停止播放后修改配置"); return; }
             sessionSettings.generationModel = modelPath.text.Trim();
             sessionSettings.embeddingModel = embeddingPath.text.Trim();
             sessionSettings.acceleration = (LlamaAcceleration)acceleration.value;
@@ -236,6 +320,7 @@ namespace WManager.Knowledge.Samples
             UpdateControls();
             try { await action(operation.Token); }
             catch (OperationCanceledException) { SetStatus("已取消"); }
+            catch (KnowledgeIndexMismatchException exception) { SetStatus(exception.Message); }
             catch (Exception exception) { SetStatus(exception.Message); if (alive) Debug.LogException(exception, this); }
             finally
             {
@@ -249,16 +334,27 @@ namespace WManager.Knowledge.Samples
         private void UpdateControls()
         {
             foreach (var button in new[] { initialize, save, remove, import, refresh, search, ask }) button.interactable = !busy;
+            chatSend.interactable = chatClear.interactable = !busy;
+            chatRelease.interactable = !busy && chatService != null;
+            chatInput.interactable = !busy;
             cancel.interactable = busy;
             foreach (var input in new[] { title, content, filePath, question, modelPath, embeddingPath }) input.interactable = !busy;
             documents.interactable = scope.interactable = acceleration.interactable = !busy;
-            apply.interactable = !busy && !runtime.IsReady;
+            apply.interactable = !busy && !runtime.IsReady && chatService == null;
         }
 
         private void OnDestroy()
         {
             alive = false; revision++;
             operation?.Cancel();
+            chatService?.Dispose(); chatService = null;
+            if (pendingChat != null)
+            {
+                try { pendingChat.GetAwaiter().GetResult().Dispose(); }
+                catch (OperationCanceledException) { }
+                catch (Exception exception) { Debug.LogWarning("[Knowledge] " + exception.Message); }
+                pendingChat = null;
+            }
             if (sessionSettings != null) ReleaseObject(sessionSettings);
             if (font != null && font != chineseFont) ReleaseObject(font);
         }
@@ -270,7 +366,15 @@ namespace WManager.Knowledge.Samples
 
         public void BuildUI()
         {
-            if (status != null) return;
+            if (status != null)
+            {
+                if (chatPage == null)
+                {
+                    font = chineseFont != null ? chineseFont : status.font;
+                    BuildChatUI(answerPage.transform.parent, settingsTab.transform.parent);
+                }
+                return;
+            }
             font = chineseFont != null ? chineseFont : Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, 18);
             var canvas = new GameObject("Knowledge Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             canvas.transform.SetParent(transform, false);
@@ -314,6 +418,7 @@ namespace WManager.Knowledge.Samples
             Label(config, "向量模型", 16, 26); embeddingPath = Input(config, "GGUF 路径", 38);
             Label(config, "推理设备", 16, 26); acceleration = Options(config, new[] { "Auto", "CPU", "Vulkan GPU" });
             apply = Command(config, "应用配置");
+            BuildChatUI(body, tabs);
             ShowPage(documentPage);
             // This sample targets the legacy Input Manager or Both. Host apps can supply their own EventSystem.
             EnsureEventSystem();
@@ -332,9 +437,24 @@ namespace WManager.Knowledge.Samples
         private void ShowPage(GameObject page)
         {
             documentPage.SetActive(page == documentPage); answerPage.SetActive(page == answerPage); settingsPage.SetActive(page == settingsPage);
+            if (chatPage != null) chatPage.SetActive(page == chatPage);
             SetTab(documentTab, page == documentPage);
             SetTab(answerTab, page == answerPage);
             SetTab(settingsTab, page == settingsPage);
+            if (chatTab != null) SetTab(chatTab, page == chatPage);
+        }
+
+        private void BuildChatUI(Transform body, Transform tabs)
+        {
+            chatTab = Command(tabs, "普通聊天");
+            chatTab.transform.SetSiblingIndex(settingsTab.transform.GetSiblingIndex());
+            chatPage = Page(body, "Chat");
+            chatOutput = Output(chatPage.transform);
+            chatInput = Input(chatPage.transform, "输入消息", 76, true);
+            var actions = Row(chatPage.transform);
+            chatSend = Command(actions, "发送"); chatClear = Command(actions, "新会话");
+            chatCopy = Command(actions, "复制会话"); chatRelease = Command(actions, "释放聊天模型");
+            chatPage.SetActive(false); SetTab(chatTab, false);
         }
 
         private static void SetTab(Button tab, bool selected)

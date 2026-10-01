@@ -48,6 +48,18 @@ namespace WManager.Knowledge
         public const string BackendVersion = "0.27.0";
         public const string BackendBundleVersion = BackendVersion + "-cpu-vulkan1";
 
+        public static string CreateEmbeddingFingerprint(string modelHash, string queryInstruction, int contextTokens)
+            => KnowledgeHash.Text("llamasharp=" + BackendVersion + ";gguf=" + modelHash
+                + ";pool=cls;normalize=l2;query=" + (queryInstruction ?? string.Empty) + ";context=" + contextTokens);
+
+        public static string CreateIndexFingerprint(KnowledgeOptions options, LlamaBackendOptions backend)
+        {
+            int dimensions = GgufModelInfo.Read(backend.EmbeddingModelPath).EmbeddingDimensions;
+            if (dimensions < 1) throw new InvalidDataException("GGUF 向量模型缺少有效 embedding_length。");
+            return KnowledgeIndex.CreateFingerprint(options, CreateEmbeddingFingerprint(KnowledgeHash.File(backend.EmbeddingModelPath),
+                backend.QueryInstruction, backend.EmbeddingContextTokens), dimensions);
+        }
+
         public static bool IsBackendInstalled(string directory) =>
             File.Exists(Path.Combine(directory, "backend.version.txt"))
             && File.ReadAllText(Path.Combine(directory, "backend.version.txt")).Trim() == BackendVersion
@@ -192,7 +204,7 @@ namespace WManager.Knowledge
             weights = LLamaWeights.LoadFromFile(parameters);
             try { embedder = new LLamaEmbedder(weights, parameters); }
             catch { weights.Dispose(); throw; }
-            Fingerprint = KnowledgeHash.Text("llamasharp=" + LlamaKnowledgeFactory.BackendVersion + ";gguf=" + hash + ";pool=cls;normalize=l2;query=" + queryInstruction + ";context=" + MaxInputTokens);
+            Fingerprint = LlamaKnowledgeFactory.CreateEmbeddingFingerprint(hash, queryInstruction, MaxInputTokens);
         }
 
         public int CountTokens(string text) => weights.Tokenize(text, true, true, Encoding.UTF8).Length;

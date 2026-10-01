@@ -14,6 +14,22 @@ namespace WManager.Knowledge
         private const int Row = 100;
         private const int Done = 101;
 
+        private SqliteKnowledgeStore(IntPtr handle) { database = handle; }
+
+        internal static string ReadFingerprint(string databasePath)
+        {
+            if (!File.Exists(databasePath)) throw new FileNotFoundException("Missing knowledge database.", databasePath);
+            int code = Native.sqlite3_open_v2(Utf8(Path.GetFullPath(databasePath)), out var handle, 0x00000001, IntPtr.Zero);
+            using (var reader = new SqliteKnowledgeStore(handle))
+            {
+                if (code != 0) throw new IOException(reader.Error());
+                using (var version = reader.Prepare("PRAGMA user_version"))
+                    if (!version.Step() || version.Int(0) != 1) throw new InvalidDataException("Unsupported seed database schema.");
+                using (var query = reader.Prepare("SELECT value FROM metadata WHERE key='index_fingerprint'"))
+                    return query.Step() ? query.Text(0) : throw new InvalidDataException("Seed database has no index fingerprint.");
+            }
+        }
+
         public SqliteKnowledgeStore(string path, string fingerprint)
         {
             if (Environment.OSVersion.Platform != PlatformID.Win32NT)
@@ -48,7 +64,7 @@ namespace WManager.Knowledge
                 using (var query = Prepare("SELECT value FROM metadata WHERE key='index_fingerprint'"))
                     if (query.Step()) existing = query.Text(0);
                 if (existing != null && existing != fingerprint && ListDocuments().Count > 0)
-                    throw new InvalidOperationException("The embedding model or chunk settings differ from this knowledge base. Restore its original settings or use a new database to rebuild it.");
+                    throw new KnowledgeIndexMismatchException();
                 if (existing == null || existing != fingerprint)
                 {
                     using (var write = Prepare("INSERT OR REPLACE INTO metadata(key,value) VALUES('index_fingerprint',?)"))

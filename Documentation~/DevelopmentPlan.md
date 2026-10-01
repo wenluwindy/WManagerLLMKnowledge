@@ -22,7 +22,7 @@
                 流式回答 + 来源引用
 ```
 
-程序集：WManager.Knowledge.Core、WManager.Knowledge.LLamaSharp、WManager.Knowledge.Runtime、WManager.Knowledge.Editor。LLamaSharp 后端与核心分别封装，模型文件独立配置。
+程序集：WManager.Knowledge.Core、WManager.Knowledge.LLamaSharp、WManager.Knowledge.Runtime、WManager.Knowledge.UGUI、WManager.Knowledge.Editor。LLamaSharp 后端与核心分别封装，模型文件独立配置。
 
 ## 3. 技术基线
 
@@ -57,7 +57,7 @@ Windows 原生 CPU 后端需要 Microsoft Visual C++ x64 运行库；发布安�
 
 向量检索取 Top K，按生成模型实际 Token 数筛选上下文；保留系统提示、问题和输出预算。生成模型使用模型适配的聊天模板，Qwen3/Qwen3.5 非思考模式在生成前补齐关闭思考的模板后缀。证据按 [S1]、[S2] 编号。程序校验回答中的引用 ID，只返回实际存在的引用。
 
-相似度不是正确率。阈值需要真实问题集调优。检索无结果时直接返回缺少依据。首版只接收当前问题，不默认持久保存聊天；多轮历史作为后续扩展，并必须受 Token 预算约束。
+相似度不是正确率。阈值需要真实问题集调优。检索无结果时直接返回缺少依据；有证据却没有有效引用时返回 MissingCitations 与失败提示，不自动重试。首版只接收当前问题，不默认持久保存聊天；多轮历史作为后续扩展，并必须受 Token 预算约束。
 
 导入文本作为证据，不能覆盖系统规则。模型权重可复用，推理上下文和向量上下文分别串行访问，后台执行，Unity UI 回主线程更新。取消及资源释放需要处理退出、停止播放和脚本重载。
 

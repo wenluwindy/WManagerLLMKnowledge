@@ -6,6 +6,8 @@
 
 示例独立使用 `ugui-demo.db`，位于 `Application.persistentDataPath/Knowledge/Databases`，不安装基础库。资料页支持手动新增/完整正文更新、两次确认删除、文件路径导入和索引片段预览；问答页支持范围选择、检索、流式回答、取消及复制。
 
+“普通聊天”页直接输入消息并发送，首次发送只加载回答模型，无需初始化知识库或向量模型。支持多轮历史、流式输出、顶部取消、新会话、复制会话与释放聊天模型。取消或失败保留输入和完整历史；释放后下次发送恢复本次会话，停止运行后不保存。聊天与 RAG 同时加载会增加内存占用。Inspector 的 Chat System Prompt 可设置普通聊天系统提示词。
+
 Input Handling 请选择 `Input Manager (Old)` 或 `Both`。如果业务工程只启用新 Input System，将场景 EventSystem 的 StandaloneInputModule 替换为 InputSystemUIInputModule。示例默认在 Windows 上使用系统中文字体；可在 KnowledgeUGUIDemo 的 Chinese Font 字段指定自己有授权的字体资产。
 
 通过 Package Manager 缓存安装包时，选中 KnowledgeRuntime，使用 Inspector 的“设置当前包的编辑器原生库路径”。发布后自动改用 Player Plugins 目录。
